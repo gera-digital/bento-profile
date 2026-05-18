@@ -201,7 +201,7 @@ export function ProfilePage({ username }: Props) {
 
 /* -------- Add Widget card -------- */
 
-function AddWidgetCard({ onAdd }: { onAdd: (type: WidgetType, size: WidgetSize, content: Record<string, unknown>) => void }) {
+function AddWidgetCard({ onAdd }: { onAdd: (type: WidgetType, size: WidgetSize, content: Record<string, string>) => void }) {
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<WidgetType>("social");
   const [size, setSize] = useState<WidgetSize>("1x1");
