@@ -1,86 +1,122 @@
-import { useEffect, useState, useCallback } from "react";
-import { useNavigate, Link } from "@tanstack/react-router";
-import { supabase } from "@/integrations/supabase/client";
+import { useState } from "react";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useAuth } from "@/hooks/use-auth";
-import type { Profile, Widget, WidgetType, WidgetSize } from "@/lib/widget-types";
-import { BentoWidget } from "./BentoWidget";
+import { usePerfilPorSlug, useAtualizarPerfil } from "@/hooks/use-perfil";
+import {
+  useBlocos,
+  useCriarBloco,
+  useAtualizarBloco,
+  useExcluirBloco,
+  useReordenarBlocos,
+} from "@/hooks/use-blocos";
+import type { Bloco, Perfil } from "@/lib/bloco-types";
+import { uploadAvatar } from "@/lib/storage-upload";
+import { PerfilHeader } from "./PerfilHeader";
+import { BlocoGrid } from "./BlocoGrid";
+import { BlocoFormDialog, type BlocoFormValues } from "./BlocoFormDialog";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog";
-import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
 import { Pencil, Check, Plus, LogOut, Sparkles } from "lucide-react";
 import { toast } from "sonner";
+import type { Json } from "@/integrations/supabase/types";
 
-interface Props { username: string }
+interface Props {
+  slug: string;
+}
 
-export function ProfilePage({ username }: Props) {
+export function ProfilePage({ slug }: Props) {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [widgets, setWidgets] = useState<Widget[]>([]);
-  const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
-  const [editProfileOpen, setEditProfileOpen] = useState(false);
+  const [editPerfilOpen, setEditPerfilOpen] = useState(false);
+  const [blocoFormOpen, setBlocoFormOpen] = useState(false);
+  const [blocoEditando, setBlocoEditando] = useState<Bloco | null>(null);
 
-  const isOwner = !!user && !!profile && user.id === profile.id;
+  const { data: perfil, isLoading, isError } = usePerfilPorSlug(slug);
+  const incluirOcultos = !!user && !!perfil && user.id === perfil.usuario_id && editing;
+  const { data: blocos = [] } = useBlocos(perfil?.id, incluirOcultos);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    const { data: p } = await supabase.from("profiles").select("*").eq("username", username).maybeSingle();
-    if (!p) { setProfile(null); setLoading(false); return; }
-    setProfile(p as Profile);
-    const { data: w } = await supabase.from("widgets").select("*")
-      .eq("profile_id", p.id).order("position_index", { ascending: true });
-    setWidgets((w as Widget[]) ?? []);
-    setLoading(false);
-  }, [username]);
+  const isOwner = !!user && !!perfil && user.id === perfil.usuario_id;
 
-  useEffect(() => { load(); }, [load]);
-
-  const handleDelete = async (id: string) => {
-    setWidgets((ws) => ws.filter((w) => w.id !== id));
-    await supabase.from("widgets").delete().eq("id", id);
-    toast.success("Bloco removido");
-  };
-
-  const handleMove = async (id: string, dir: -1 | 1) => {
-    const idx = widgets.findIndex((w) => w.id === id);
-    const swap = idx + dir;
-    if (idx < 0 || swap < 0 || swap >= widgets.length) return;
-    const next = [...widgets];
-    [next[idx], next[swap]] = [next[swap], next[idx]];
-    const reindexed = next.map((w, i) => ({ ...w, position_index: i }));
-    setWidgets(reindexed);
-    await Promise.all(
-      reindexed.map((w) => supabase.from("widgets").update({ position_index: w.position_index }).eq("id", w.id))
-    );
-  };
-
-  const addWidget = async (type: WidgetType, size: WidgetSize, content: Record<string, string>) => {
-    if (!profile) return;
-    const { data, error } = await supabase.from("widgets").insert({
-      profile_id: profile.id, type, size, content: content as never, position_index: widgets.length,
-    }).select().single();
-    if (error) { toast.error(error.message); return; }
-    setWidgets((ws) => [...ws, data as unknown as Widget]);
-    toast.success("Bloco adicionado");
-  };
+  const criarBloco = useCriarBloco(perfil?.id ?? 0);
+  const atualizarBloco = useAtualizarBloco(perfil?.id ?? 0);
+  const excluirBloco = useExcluirBloco(perfil?.id ?? 0);
+  const reordenar = useReordenarBlocos(perfil?.id ?? 0);
 
   const logout = async () => {
+    const { supabase } = await import("@/integrations/supabase/client");
     await supabase.auth.signOut();
     navigate({ to: "/login" });
   };
 
-  if (loading) {
+  const handleDelete = (id: number) => {
+    excluirBloco.mutate(id, {
+      onSuccess: () => toast.success("Bloco removido"),
+      onError: (e) => toast.error(e.message),
+    });
+  };
+
+  const handleMove = (id: number, dir: -1 | 1) => {
+    const idx = blocos.findIndex((b) => b.id === id);
+    const swap = idx + dir;
+    if (idx < 0 || swap < 0 || swap >= blocos.length) return;
+    const next = [...blocos];
+    [next[idx], next[swap]] = [next[swap], next[idx]];
+    reordenar.mutate(next);
+  };
+
+  const handleBlocoSubmit = (values: BlocoFormValues) => {
+    if (!perfil) return;
+    if (blocoEditando) {
+      atualizarBloco.mutate(
+        {
+          id: blocoEditando.id,
+          tipo: values.tipo,
+          titulo: values.titulo || null,
+          conteudo: values.conteudo,
+          colunas: values.colunas,
+          linhas: values.linhas,
+        },
+        {
+          onSuccess: () => {
+            toast.success("Bloco atualizado");
+            setBlocoFormOpen(false);
+            setBlocoEditando(null);
+          },
+          onError: (e) => toast.error(e.message),
+        },
+      );
+    } else {
+      criarBloco.mutate(
+        {
+          tipo: values.tipo,
+          titulo: values.titulo || undefined,
+          conteudo: values.conteudo,
+          colunas: values.colunas,
+          linhas: values.linhas,
+          ordem: blocos.length,
+        },
+        {
+          onSuccess: () => {
+            toast.success("Bloco adicionado");
+            setBlocoFormOpen(false);
+          },
+          onError: (e) => toast.error(e.message),
+        },
+      );
+    }
+  };
+
+  if (isLoading) {
     return (
       <div className="min-h-screen grid place-items-center">
         <div className="text-muted-foreground animate-pulse">Carregando…</div>
@@ -88,12 +124,12 @@ export function ProfilePage({ username }: Props) {
     );
   }
 
-  if (!profile) {
+  if (isError || !perfil) {
     return (
       <div className="min-h-screen grid place-items-center px-6">
         <div className="text-center max-w-md">
           <h1 className="text-4xl font-bold">Perfil não encontrado</h1>
-          <p className="text-muted-foreground mt-2">O usuário @{username} não existe.</p>
+          <p className="text-muted-foreground mt-2">O slug @{slug} não existe.</p>
           <Button asChild className="mt-6 rounded-full">
             <Link to="/">Voltar</Link>
           </Button>
@@ -104,21 +140,20 @@ export function ProfilePage({ username }: Props) {
 
   return (
     <div className="min-h-screen px-4 sm:px-6 py-8 sm:py-12 max-w-6xl mx-auto">
-      {/* top bar */}
-      <header className="flex items-center justify-between mb-8 sm:mb-12">
-        <Link to="/" className="flex items-center gap-2 group">
-          <div className="h-9 w-9 rounded-2xl bg-gradient-to-br from-violet to-violet-glow grid place-items-center shadow-lg shadow-violet/30">
+      <header className="flex items-center justify-between mb-8">
+        <Link to="/" className="flex items-center gap-2">
+          <div className="h-9 w-9 rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-600 grid place-items-center shadow-lg shadow-violet-500/30">
             <Sparkles className="h-4 w-4 text-white" />
           </div>
-          <span className="font-bold tracking-tight">NewPort<span className="text-violet-glow">.Folio</span></span>
+          <span className="font-bold tracking-tight">
+            NoCode<span className="text-violet-400"> Folio</span>
+          </span>
         </Link>
         <div className="flex items-center gap-2">
           {isOwner ? (
-            <>
-              <Button variant="ghost" size="sm" onClick={logout} className="rounded-full">
-                <LogOut className="h-4 w-4" />
-              </Button>
-            </>
+            <Button variant="ghost" size="sm" onClick={logout} className="rounded-full">
+              <LogOut className="h-4 w-4" />
+            </Button>
           ) : (
             <Button asChild variant="ghost" size="sm" className="rounded-full">
               <Link to="/login">Criar meu perfil</Link>
@@ -127,214 +162,207 @@ export function ProfilePage({ username }: Props) {
         </div>
       </header>
 
-      {/* bento grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 auto-rows-[180px]">
-        {/* virtual profile card */}
-        <BentoWidget
-          widget={{
-            id: "__profile",
-            profile_id: profile.id,
-            type: "profile",
-            size: "2x2",
-            position_index: -1,
-            content: {},
-          }}
-          index={0}
-          total={widgets.length + 1}
-          editing={editing}
-          profileName={profile.full_name ?? profile.username}
-          profileBio={profile.bio ?? undefined}
-          profileAvatar={profile.avatar_url}
-          profileSkills={profile.skills ?? undefined}
-          profileUsername={profile.username}
-          onDelete={() => setEditProfileOpen(true)}
-          onMove={() => {}}
-        />
-        {widgets.map((w, i) => (
-          <BentoWidget
-            key={w.id}
-            widget={w}
-            index={i}
-            total={widgets.length}
-            editing={editing && isOwner}
-            onDelete={handleDelete}
-            onMove={handleMove}
-            profileName={profile.full_name ?? profile.username}
-          />
-        ))}
+      <PerfilHeader perfil={perfil} />
 
-        {editing && isOwner && (
-          <AddWidgetCard onAdd={addWidget} />
-        )}
-      </div>
+      <BlocoGrid
+        blocos={blocos}
+        perfilId={perfil.id}
+        editing={editing && isOwner}
+        onDelete={handleDelete}
+        onMove={handleMove}
+        onEdit={(b) => {
+          setBlocoEditando(b);
+          setBlocoFormOpen(true);
+        }}
+        onReorder={(ordenados) => reordenar.mutate(ordenados)}
+        addSlot={
+          editing && isOwner ? (
+            <button
+              type="button"
+              onClick={() => {
+                setBlocoEditando(null);
+                setBlocoFormOpen(true);
+              }}
+              className="col-span-1 row-span-1 min-h-[180px] rounded-3xl border border-dashed border-slate-700 bg-slate-900/20 grid place-items-center hover:border-violet-500/50 transition-colors"
+            >
+              <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                <div className="h-12 w-12 rounded-2xl bg-violet-500/15 grid place-items-center border border-violet-500/30">
+                  <Plus className="h-6 w-6 text-violet-400" />
+                </div>
+                <span className="text-sm font-medium">Adicionar bloco</span>
+              </div>
+            </button>
+          ) : undefined
+        }
+      />
 
-      {/* footer */}
       <footer className="mt-16 text-center text-xs text-muted-foreground">
-        Feito com <span className="text-violet-glow">♥</span> no NewPort Folio
+        Feito com <span className="text-violet-400">♥</span> no NoCode Folio
       </footer>
 
-      {/* floating edit button */}
       {isOwner && (
         <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-3">
           {editing && (
-            <Dialog open={editProfileOpen} onOpenChange={setEditProfileOpen}>
+            <Dialog open={editPerfilOpen} onOpenChange={setEditPerfilOpen}>
               <DialogTrigger asChild>
                 <Button size="lg" variant="secondary" className="rounded-full shadow-xl">
                   <Pencil className="h-4 w-4 mr-2" /> Perfil
                 </Button>
               </DialogTrigger>
-              <EditProfileDialog profile={profile} onSaved={(p) => { setProfile(p); load(); }} />
+              <EditPerfilDialog
+                perfil={perfil}
+                usuarioId={user!.id}
+                onSaved={() => setEditPerfilOpen(false)}
+              />
             </Dialog>
           )}
           <Button
             size="lg"
             onClick={() => setEditing((e) => !e)}
-            className="rounded-full shadow-xl shadow-violet/40 bg-violet hover:bg-violet-glow"
+            className="rounded-full shadow-xl shadow-violet-500/40 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:opacity-90"
           >
-            {editing ? <><Check className="h-4 w-4 mr-2" /> Concluir</> : <><Pencil className="h-4 w-4 mr-2" /> Editar Perfil</>}
+            {editing ? (
+              <>
+                <Check className="h-4 w-4 mr-2" /> Concluir
+              </>
+            ) : (
+              <>
+                <Pencil className="h-4 w-4 mr-2" /> Editar Grid
+              </>
+            )}
           </Button>
         </div>
       )}
+
+      <BlocoFormDialog
+        open={blocoFormOpen}
+        onOpenChange={(o) => {
+          setBlocoFormOpen(o);
+          if (!o) setBlocoEditando(null);
+        }}
+        bloco={blocoEditando}
+        usuarioId={user!.id}
+        onSubmit={handleBlocoSubmit}
+        loading={criarBloco.isPending || atualizarBloco.isPending}
+      />
     </div>
   );
 }
 
-/* -------- Add Widget card -------- */
-
-function AddWidgetCard({ onAdd }: { onAdd: (type: WidgetType, size: WidgetSize, content: Record<string, string>) => void }) {
-  const [open, setOpen] = useState(false);
-  const [type, setType] = useState<WidgetType>("social");
-  const [size, setSize] = useState<WidgetSize>("1x1");
-  const [form, setForm] = useState<Record<string, string>>({});
-
-  const submit = () => {
-    onAdd(type, size, { ...form });
-    setOpen(false);
-    setForm({});
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <button className="glass glass-interactive col-span-1 row-span-1 min-h-[180px] grid place-items-center border-dashed">
-          <div className="flex flex-col items-center gap-2 text-muted-foreground">
-            <div className="h-12 w-12 rounded-2xl bg-violet/15 grid place-items-center border border-violet/30">
-              <Plus className="h-6 w-6 text-violet-glow" />
-            </div>
-            <span className="text-sm font-medium">Adicionar bloco</span>
-          </div>
-        </button>
-      </DialogTrigger>
-      <DialogContent className="max-w-md">
-        <DialogHeader><DialogTitle>Novo bloco</DialogTitle></DialogHeader>
-        <div className="space-y-4">
-          <div>
-            <Label>Tipo</Label>
-            <Select value={type} onValueChange={(v) => setType(v as WidgetType)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="social">Rede social</SelectItem>
-                <SelectItem value="link">Link</SelectItem>
-                <SelectItem value="showcase">Showcase (imagem)</SelectItem>
-                <SelectItem value="newsletter">Newsletter</SelectItem>
-                <SelectItem value="map">Mapa / Localização</SelectItem>
-                <SelectItem value="note">Nota</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label>Tamanho</Label>
-            <Select value={size} onValueChange={(v) => setSize(v as WidgetSize)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="1x1">Pequeno (1×1)</SelectItem>
-                <SelectItem value="2x1">Largo (2×1)</SelectItem>
-                <SelectItem value="1x2">Alto (1×2)</SelectItem>
-                <SelectItem value="2x2">Grande (2×2)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {type === "social" && (
-            <>
-              <div>
-                <Label>Plataforma</Label>
-                <Select value={form.platform ?? "instagram"} onValueChange={(v) => setForm({ ...form, platform: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {["instagram", "linkedin", "github", "youtube", "twitter", "twitch"].map((p) => (
-                      <SelectItem key={p} value={p} className="capitalize">{p}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div><Label>URL</Label><Input value={form.url ?? ""} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="https://..." /></div>
-            </>
-          )}
-          {(type === "link" || type === "showcase") && (
-            <>
-              <div><Label>Título</Label><Input value={form.title ?? ""} onChange={(e) => setForm({ ...form, title: e.target.value })} /></div>
-              <div><Label>Subtítulo</Label><Input value={form.subtitle ?? ""} onChange={(e) => setForm({ ...form, subtitle: e.target.value })} /></div>
-              <div><Label>URL</Label><Input value={form.url ?? ""} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="https://..." /></div>
-              {type === "showcase" && (
-                <div><Label>URL da imagem de capa</Label><Input value={form.image_url ?? ""} onChange={(e) => setForm({ ...form, image_url: e.target.value })} placeholder="https://..." /></div>
-              )}
-            </>
-          )}
-          {type === "newsletter" && (
-            <>
-              <div><Label>Título</Label><Input value={form.heading ?? ""} onChange={(e) => setForm({ ...form, heading: e.target.value })} /></div>
-              <div><Label>Descrição</Label><Input value={form.description ?? ""} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
-            </>
-          )}
-          {type === "map" && (
-            <div><Label>Localização</Label><Input value={form.location ?? ""} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="São Paulo, BR" /></div>
-          )}
-          {type === "note" && (
-            <div><Label>Texto</Label><Textarea value={form.text ?? ""} onChange={(e) => setForm({ ...form, text: e.target.value })} /></div>
-          )}
-
-          <Button onClick={submit} className="w-full rounded-xl bg-violet hover:bg-violet-glow">Adicionar</Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-/* -------- Edit Profile dialog -------- */
-
-function EditProfileDialog({ profile, onSaved }: { profile: Profile; onSaved: (p: Profile) => void }) {
+function EditPerfilDialog({
+  perfil,
+  usuarioId,
+  onSaved,
+}: {
+  perfil: Perfil;
+  usuarioId: string;
+  onSaved: () => void;
+}) {
+  const atualizar = useAtualizarPerfil();
   const [form, setForm] = useState({
-    full_name: profile.full_name ?? "",
-    bio: profile.bio ?? "",
-    avatar_url: profile.avatar_url ?? "",
-    location: profile.location ?? "",
-    skills: (profile.skills ?? []).join(", "),
+    nome_completo: perfil.nome_completo ?? "",
+    bio: perfil.bio ?? "",
+    slug: perfil.slug,
+    redes: JSON.stringify(
+      (perfil.configuracao_tema as { redes_sociais?: unknown })?.redes_sociais ?? [],
+      null,
+      2,
+    ),
   });
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
 
   const save = async () => {
-    const skills = form.skills.split(",").map((s) => s.trim()).filter(Boolean);
-    const { data, error } = await supabase.from("profiles").update({
-      full_name: form.full_name, bio: form.bio,
-      avatar_url: form.avatar_url || null, location: form.location || null,
-      skills,
-    }).eq("id", profile.id).select().single();
-    if (error) { toast.error(error.message); return; }
-    onSaved(data as Profile);
-    toast.success("Perfil atualizado");
+    const slugNorm = form.slug.trim().toLowerCase().replace(/[^a-z0-9_]/g, "");
+    if (!slugNorm) {
+      toast.error("Slug inválido");
+      return;
+    }
+    let configuracao_tema: Json = perfil.configuracao_tema;
+    try {
+      const redes = JSON.parse(form.redes);
+      configuracao_tema = { redes_sociais: redes } as Json;
+    } catch {
+      toast.error("JSON de redes sociais inválido");
+      return;
+    }
+    let avatar_url = perfil.avatar_url;
+    if (avatarFile) {
+      try {
+        avatar_url = await uploadAvatar(usuarioId, avatarFile);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Erro no upload");
+        return;
+      }
+    }
+    atualizar.mutate(
+      {
+        id: perfil.id,
+        slug: slugNorm,
+        updates: {
+          nome_completo: form.nome_completo,
+          bio: form.bio,
+          slug: slugNorm,
+          avatar_url,
+          configuracao_tema,
+        },
+      },
+      {
+        onSuccess: (data) => {
+          toast.success("Perfil atualizado");
+          onSaved();
+          if (data.slug !== perfil.slug) {
+            window.location.href = `/${data.slug}`;
+          }
+        },
+        onError: (e) => toast.error(e.message),
+      },
+    );
   };
 
   return (
-    <DialogContent className="max-w-md">
-      <DialogHeader><DialogTitle>Editar perfil</DialogTitle></DialogHeader>
+    <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+      <DialogHeader>
+        <DialogTitle>Editar perfil</DialogTitle>
+      </DialogHeader>
       <div className="space-y-3">
-        <div><Label>Nome</Label><Input value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} /></div>
-        <div><Label>Bio</Label><Textarea value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} rows={3} /></div>
-        <div><Label>URL do avatar</Label><Input value={form.avatar_url} onChange={(e) => setForm({ ...form, avatar_url: e.target.value })} placeholder="https://..." /></div>
-        <div><Label>Localização</Label><Input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} /></div>
-        <div><Label>Skills (separadas por vírgula)</Label><Input value={form.skills} onChange={(e) => setForm({ ...form, skills: e.target.value })} placeholder="React, Bubble, Figma" /></div>
-        <Button onClick={save} className="w-full rounded-xl bg-violet hover:bg-violet-glow">Salvar</Button>
+        <div>
+          <Label>Nome</Label>
+          <Input
+            value={form.nome_completo}
+            onChange={(e) => setForm({ ...form, nome_completo: e.target.value })}
+          />
+        </div>
+        <div>
+          <Label>Bio</Label>
+          <Textarea value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} rows={3} />
+        </div>
+        <div>
+          <Label>Slug da URL</Label>
+          <Input value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value })} />
+          <p className="text-xs text-muted-foreground mt-1">folio.io/{form.slug || "seu-slug"}</p>
+        </div>
+        <div>
+          <Label>Avatar</Label>
+          <Input type="file" accept="image/*" onChange={(e) => setAvatarFile(e.target.files?.[0] ?? null)} />
+        </div>
+        <div>
+          <Label>Redes sociais (JSON)</Label>
+          <Textarea
+            value={form.redes}
+            onChange={(e) => setForm({ ...form, redes: e.target.value })}
+            rows={4}
+            placeholder='[{"plataforma":"instagram","url":"https://..."}]'
+          />
+        </div>
+        <Button
+          onClick={() => void save()}
+          disabled={atualizar.isPending}
+          className="w-full rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600"
+        >
+          Salvar
+        </Button>
       </div>
     </DialogContent>
   );
 }
+

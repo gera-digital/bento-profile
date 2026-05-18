@@ -7,89 +7,119 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
-      profiles: {
+      blocos: {
         Row: {
-          avatar_url: string | null
-          bio: string | null
+          colunas: number
+          conteudo: Json
           created_at: string
-          full_name: string | null
-          id: string
-          location: string | null
-          skills: string[] | null
-          updated_at: string
-          username: string
+          id: number
+          linhas: number
+          ordem: number
+          perfil_id: number
+          tipo: string
+          titulo: string | null
+          visivel: boolean
         }
         Insert: {
-          avatar_url?: string | null
-          bio?: string | null
+          colunas?: number
+          conteudo?: Json
           created_at?: string
-          full_name?: string | null
-          id: string
-          location?: string | null
-          skills?: string[] | null
-          updated_at?: string
-          username: string
+          id?: number
+          linhas?: number
+          ordem?: number
+          perfil_id: number
+          tipo: string
+          titulo?: string | null
+          visivel?: boolean
         }
         Update: {
-          avatar_url?: string | null
-          bio?: string | null
+          colunas?: number
+          conteudo?: Json
           created_at?: string
-          full_name?: string | null
-          id?: string
-          location?: string | null
-          skills?: string[] | null
-          updated_at?: string
-          username?: string
-        }
-        Relationships: []
-      }
-      widgets: {
-        Row: {
-          content: Json
-          created_at: string
-          id: string
-          position_index: number
-          profile_id: string
-          size: Database["public"]["Enums"]["widget_size"]
-          type: string
-          updated_at: string
-        }
-        Insert: {
-          content?: Json
-          created_at?: string
-          id?: string
-          position_index?: number
-          profile_id: string
-          size?: Database["public"]["Enums"]["widget_size"]
-          type: string
-          updated_at?: string
-        }
-        Update: {
-          content?: Json
-          created_at?: string
-          id?: string
-          position_index?: number
-          profile_id?: string
-          size?: Database["public"]["Enums"]["widget_size"]
-          type?: string
-          updated_at?: string
+          id?: number
+          linhas?: number
+          ordem?: number
+          perfil_id?: number
+          tipo?: string
+          titulo?: string | null
+          visivel?: boolean
         }
         Relationships: [
           {
-            foreignKeyName: "widgets_profile_id_fkey"
-            columns: ["profile_id"]
+            foreignKeyName: "blocos_perfil_id_fkey"
+            columns: ["perfil_id"]
             isOneToOne: false
-            referencedRelation: "profiles"
+            referencedRelation: "perfis"
             referencedColumns: ["id"]
           },
         ]
+      }
+      leads: {
+        Row: {
+          created_at: string
+          email: string
+          id: number
+          perfil_id: number
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id?: number
+          perfil_id: number
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: number
+          perfil_id?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leads_perfil_id_fkey"
+            columns: ["perfil_id"]
+            isOneToOne: false
+            referencedRelation: "perfis"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      perfis: {
+        Row: {
+          avatar_url: string | null
+          bio: string | null
+          configuracao_tema: Json
+          created_at: string
+          id: number
+          nome_completo: string | null
+          slug: string
+          usuario_id: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          bio?: string | null
+          configuracao_tema?: Json
+          created_at?: string
+          id?: number
+          nome_completo?: string | null
+          slug: string
+          usuario_id: string
+        }
+        Update: {
+          avatar_url?: string | null
+          bio?: string | null
+          configuracao_tema?: Json
+          created_at?: string
+          id?: number
+          nome_completo?: string | null
+          slug?: string
+          usuario_id?: string
+        }
+        Relationships: []
       }
     }
     Views: {
@@ -99,7 +129,7 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      widget_size: "1x1" | "2x1" | "1x2" | "2x2"
+      [_ in never]: never
     }
     CompositeTypes: {
       [_ in never]: never
@@ -190,44 +220,8 @@ export type TablesUpdate<
       : never
     : never
 
-export type Enums<
-  DefaultSchemaEnumNameOrOptions extends
-    | keyof DefaultSchema["Enums"]
-    | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
-  }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
-> = DefaultSchemaEnumNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
-}
-  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
-  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
-    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
-    : never
-
-export type CompositeTypes<
-  PublicCompositeTypeNameOrOptions extends
-    | keyof DefaultSchema["CompositeTypes"]
-    | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
-  }
-    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
-> = PublicCompositeTypeNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
-}
-  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
-  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
-    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
-    : never
-
 export const Constants = {
   public: {
-    Enums: {
-      widget_size: ["1x1", "2x1", "1x2", "2x2"],
-    },
+    Enums: {},
   },
 } as const

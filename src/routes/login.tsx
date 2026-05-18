@@ -1,8 +1,8 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable";
 import { useAuth } from "@/hooks/use-auth";
+import { redirectParaMeuPerfil } from "@/lib/auth-redirect";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,99 +11,190 @@ import { Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/login")({
-  head: () => ({ meta: [{ title: "Entrar — NewPort Folio" }] }),
+  head: () => ({ meta: [{ title: "Entrar — NoCode Folio" }] }),
   component: LoginPage,
 });
+
+type AuthMode = "signup" | "login";
 
 function LoginPage() {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
+  const [mode, setMode] = useState<AuthMode>("signup");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [magicSent, setMagicSent] = useState(false);
 
   useEffect(() => {
     if (!loading && user) {
-      supabase.from("profiles").select("username").eq("id", user.id).maybeSingle().then(({ data }) => {
-        if (data?.username) navigate({ to: "/$username", params: { username: data.username } });
-      });
+      void redirectParaMeuPerfil(navigate, user);
     }
   }, [user, loading, navigate]);
 
-  const handleAuth = async (mode: "login" | "signup") => {
+  useEffect(() => {
+    setMagicSent(false);
+  }, [mode]);
+
+  const sendMagicLink = async () => {
+    if (!email.trim()) return;
     setSubmitting(true);
     try {
-      if (mode === "signup") {
-        const { error } = await supabase.auth.signUp({
-          email, password,
-          options: { emailRedirectTo: window.location.origin },
-        });
-        if (error) throw error;
-        toast.success("Conta criada! Verifique seu email.");
-      } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
+      const { error } = await supabase.auth.signInWithOtp({
+        email: email.trim(),
+        options: {
+          emailRedirectTo: window.location.origin,
+          shouldCreateUser: mode === "signup",
+        },
+      });
+      if (error) {
+        if (mode === "login" && isUsuarioNaoEncontrado(error.message)) {
+          toast.error('Este email não tem conta. Use a aba "Criar conta".');
+          return;
+        }
+        throw error;
       }
+      setMagicSent(true);
+      toast.success(
+        mode === "signup"
+          ? "Link enviado! Confirme seu email para ativar a conta."
+          : "Link de acesso enviado! Verifique seu email.",
+      );
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erro");
+      toast.error(formatAuthError(e));
     } finally {
       setSubmitting(false);
     }
   };
 
-  const signInGoogle = async () => {
-    const r = await lovable.auth.signInWithOAuth("google", { redirect_uri: window.location.origin });
-    if (r.error) toast.error("Falha no login com Google");
+  const submitEmailPassword = async () => {
+    if (!email.trim() || !password) {
+      toast.error("Preencha email e senha.");
+      return;
+    }
+    if (password.length < 6) {
+      toast.error("A senha deve ter pelo menos 6 caracteres.");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      if (mode === "signup") {
+        const { error } = await supabase.auth.signUp({
+          email: email.trim(),
+          password,
+          options: { emailRedirectTo: window.location.origin },
+        });
+        if (error) throw error;
+        toast.success("Conta criada! Verifique seu email ou entre com a senha.");
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        });
+        if (error) {
+          if (isUsuarioNaoEncontrado(error.message)) {
+            toast.error('Conta não encontrada. Crie uma conta na aba "Criar conta".');
+            return;
+          }
+          throw error;
+        }
+      }
+    } catch (e) {
+      toast.error(formatAuthError(e));
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
     <div className="min-h-screen grid place-items-center px-4">
       <div className="w-full max-w-md">
         <Link to="/" className="flex items-center justify-center gap-2 mb-8">
-          <div className="h-10 w-10 rounded-2xl bg-gradient-to-br from-violet to-violet-glow grid place-items-center shadow-lg shadow-violet/40">
+          <div className="h-10 w-10 rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-600 grid place-items-center shadow-lg shadow-violet-500/40">
             <Sparkles className="h-5 w-5 text-white" />
           </div>
-          <span className="text-xl font-bold">NewPort<span className="text-violet-glow">.Folio</span></span>
+          <span className="text-xl font-bold">
+            NoCode<span className="text-violet-400"> Folio</span>
+          </span>
         </Link>
 
-        <div className="glass p-6 sm:p-8">
+        <div className="glass p-6 sm:p-8 rounded-3xl bg-slate-900/40 backdrop-blur-md border border-slate-800">
           <h1 className="text-2xl font-bold text-center">Seu portfólio em bento</h1>
-          <p className="text-sm text-muted-foreground text-center mt-1">Entre ou crie sua conta</p>
+          <p className="text-sm text-muted-foreground text-center mt-1">
+            Crie uma conta para começar. Depois use Entrar com o mesmo email.
+          </p>
 
-          <Button onClick={signInGoogle} variant="secondary" className="w-full rounded-xl mt-6">
-            <GoogleIcon /> Continuar com Google
-          </Button>
-
-          <div className="flex items-center gap-3 my-5">
-            <div className="h-px bg-border flex-1" />
-            <span className="text-xs text-muted-foreground">ou</span>
-            <div className="h-px bg-border flex-1" />
-          </div>
-
-          <Tabs defaultValue="login">
-            <TabsList className="grid grid-cols-2 w-full">
-              <TabsTrigger value="login">Entrar</TabsTrigger>
+          <Tabs value={mode} onValueChange={(v) => setMode(v as AuthMode)} className="mt-6">
+            <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="signup">Criar conta</TabsTrigger>
+              <TabsTrigger value="login">Entrar</TabsTrigger>
             </TabsList>
-            {(["login", "signup"] as const).map((mode) => (
-              <TabsContent key={mode} value={mode} className="space-y-3 mt-4">
-                <div>
-                  <Label>Email</Label>
-                  <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-                </div>
-                <div>
-                  <Label>Senha</Label>
-                  <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-                </div>
-                <Button
-                  onClick={() => handleAuth(mode)}
-                  disabled={submitting || !email || !password}
-                  className="w-full rounded-xl bg-violet hover:bg-violet-glow"
+
+            <TabsContent value="signup" className="space-y-4 mt-4">
+              <AuthFields
+                email={email}
+                password={password}
+                magicSent={magicSent}
+                onEmailChange={setEmail}
+                onPasswordChange={setPassword}
+              />
+              <Button
+                onClick={() => void submitEmailPassword()}
+                disabled={submitting}
+                className="w-full rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600"
+              >
+                {submitting ? "Aguarde…" : "Criar conta com email e senha"}
+              </Button>
+              <Divider label="ou Magic Link" />
+              <Button
+                onClick={() => void sendMagicLink()}
+                disabled={submitting || !email.trim() || magicSent}
+                variant="secondary"
+                className="w-full rounded-xl"
+              >
+                {magicSent ? "Link enviado" : "Criar conta com Magic Link"}
+              </Button>
+            </TabsContent>
+
+            <TabsContent value="login" className="space-y-4 mt-4">
+              <p className="text-xs text-muted-foreground text-center">
+                Use o email e a senha da conta que você criou.
+              </p>
+              <AuthFields
+                email={email}
+                password={password}
+                magicSent={magicSent}
+                onEmailChange={setEmail}
+                onPasswordChange={setPassword}
+              />
+              <Button
+                onClick={() => void submitEmailPassword()}
+                disabled={submitting}
+                className="w-full rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600"
+              >
+                {submitting ? "Aguarde…" : "Entrar com email e senha"}
+              </Button>
+              <Divider label="ou Magic Link" />
+              <Button
+                onClick={() => void sendMagicLink()}
+                disabled={submitting || !email.trim() || magicSent}
+                variant="secondary"
+                className="w-full rounded-xl"
+              >
+                {magicSent ? "Link enviado" : "Entrar com Magic Link"}
+              </Button>
+              <p className="text-xs text-center text-muted-foreground">
+                Não tem conta?{" "}
+                <button
+                  type="button"
+                  className="text-violet-400 hover:underline"
+                  onClick={() => setMode("signup")}
                 >
-                  {mode === "login" ? "Entrar" : "Criar conta"}
-                </Button>
-              </TabsContent>
-            ))}
+                  Criar conta
+                </button>
+              </p>
+            </TabsContent>
           </Tabs>
         </div>
       </div>
@@ -111,13 +202,72 @@ function LoginPage() {
   );
 }
 
-function GoogleIcon() {
+function AuthFields({
+  email,
+  password,
+  magicSent,
+  onEmailChange,
+  onPasswordChange,
+}: {
+  email: string;
+  password: string;
+  magicSent: boolean;
+  onEmailChange: (v: string) => void;
+  onPasswordChange: (v: string) => void;
+}) {
   return (
-    <svg className="h-4 w-4 mr-2" viewBox="0 0 24 24">
-      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-      <path fill="#FBBC05" d="M5.84 14.1A6.97 6.97 0 0 1 5.47 12c0-.73.13-1.44.37-2.1V7.07H2.18A11 11 0 0 0 1 12c0 1.78.43 3.46 1.18 4.93l3.66-2.84z"/>
-      <path fill="#EA4335" d="M12 5.38c1.62 0 3.07.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.83C6.71 7.31 9.14 5.38 12 5.38z"/>
-    </svg>
+    <div className="space-y-3">
+      <div>
+        <Label>Email</Label>
+        <Input
+          type="email"
+          value={email}
+          onChange={(e) => onEmailChange(e.target.value)}
+          placeholder="voce@email.com"
+          disabled={magicSent}
+          autoComplete="email"
+        />
+      </div>
+      <div>
+        <Label>Senha</Label>
+        <Input
+          type="password"
+          value={password}
+          onChange={(e) => onPasswordChange(e.target.value)}
+          placeholder="mínimo 6 caracteres"
+          disabled={magicSent}
+          autoComplete={magicSent ? "off" : "current-password"}
+        />
+      </div>
+    </div>
   );
+}
+
+function Divider({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-3">
+      <div className="h-px bg-border flex-1" />
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <div className="h-px bg-border flex-1" />
+    </div>
+  );
+}
+
+function isUsuarioNaoEncontrado(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes("user not found") ||
+    m.includes("signups not allowed") ||
+    m.includes("not registered") ||
+    m.includes("invalid login") ||
+    m.includes("invalid credentials")
+  );
+}
+
+function formatAuthError(e: unknown): string {
+  const msg = e instanceof Error ? e.message : "Erro de autenticação";
+  if (msg.toLowerCase().includes("provider is not enabled")) {
+    return "Provedor de login não habilitado no Supabase. Use email e senha ou Magic Link.";
+  }
+  return msg;
 }

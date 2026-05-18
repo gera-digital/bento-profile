@@ -73,7 +73,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "NewPort Folio" },
+      { title: "NoCode Folio" },
       { name: "description", content: "Seu link-in-bio em bento grid, dark e elegante." },
       { name: "theme-color", content: "#020617" },
     ],
@@ -95,11 +95,11 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootShell({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="pt-BR" className="dark">
       <head>
         <HeadContent />
       </head>
-      <body>
+      <body className="min-h-screen bg-slate-950 text-foreground antialiased">
         {children}
         <Scripts />
       </body>

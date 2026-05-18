@@ -1,16 +1,16 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
-import { supabase } from "@/integrations/supabase/client";
+import { redirectParaMeuPerfil } from "@/lib/auth-redirect";
 import { Button } from "@/components/ui/button";
 import { Sparkles, ArrowRight, Grid3x3, Sparkle, Zap } from "lucide-react";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "NewPort Folio — Seu portfólio em bento" },
+      { title: "NoCode Folio — Seu portfólio em bento" },
       { name: "description", content: "Crie uma página de perfil modular em blocos bento. Glassmorphism dark mode." },
-      { property: "og:title", content: "NewPort Folio" },
+      { property: "og:title", content: "NoCode Folio" },
       { property: "og:description", content: "Seu link-in-bio estilo bento, dark e elegante." },
     ],
   }),
@@ -23,9 +23,7 @@ function Index() {
 
   useEffect(() => {
     if (!loading && user) {
-      supabase.from("profiles").select("username").eq("id", user.id).maybeSingle().then(({ data }) => {
-        if (data?.username) navigate({ to: "/$username", params: { username: data.username } });
-      });
+      void redirectParaMeuPerfil(navigate, user);
     }
   }, [user, loading, navigate]);
 
@@ -36,7 +34,7 @@ function Index() {
           <div className="h-9 w-9 rounded-2xl bg-gradient-to-br from-violet to-violet-glow grid place-items-center shadow-lg shadow-violet/40">
             <Sparkles className="h-4 w-4 text-white" />
           </div>
-          <span className="font-bold tracking-tight">NewPort<span className="text-violet-glow">.Folio</span></span>
+          <span className="font-bold tracking-tight">NoCode<span className="text-violet-400"> Folio</span></span>
         </div>
         <Button asChild variant="ghost" size="sm" className="rounded-full">
           <Link to="/login">Entrar</Link>
@@ -58,10 +56,10 @@ function Index() {
         </p>
         <div className="mt-8 flex flex-wrap gap-3 justify-center">
           <Button asChild size="lg" className="rounded-full bg-violet hover:bg-violet-glow shadow-xl shadow-violet/30">
-            <Link to="/login">Criar meu perfil <ArrowRight className="h-4 w-4 ml-1" /></Link>
+            <Link to="/login">Criar conta grátis <ArrowRight className="h-4 w-4 ml-1" /></Link>
           </Button>
           <Button asChild size="lg" variant="secondary" className="rounded-full">
-            <Link to="/$username" params={{ username: "demo" }}>Ver demo</Link>
+            <Link to="/$slug" params={{ slug: "demo" }}>Ver demo</Link>
           </Button>
         </div>
       </section>
