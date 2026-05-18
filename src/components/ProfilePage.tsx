@@ -65,13 +65,13 @@ export function ProfilePage({ username }: Props) {
     );
   };
 
-  const addWidget = async (type: WidgetType, size: WidgetSize, content: Record<string, unknown>) => {
+  const addWidget = async (type: WidgetType, size: WidgetSize, content: Record<string, string>) => {
     if (!profile) return;
     const { data, error } = await supabase.from("widgets").insert({
-      profile_id: profile.id, type, size, content, position_index: widgets.length,
+      profile_id: profile.id, type, size, content: content as never, position_index: widgets.length,
     }).select().single();
     if (error) { toast.error(error.message); return; }
-    setWidgets((ws) => [...ws, data as Widget]);
+    setWidgets((ws) => [...ws, data as unknown as Widget]);
     toast.success("Bloco adicionado");
   };
 
